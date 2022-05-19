@@ -3,7 +3,7 @@ package main
 var emojis = map[string]string{
 	"u1f35c": "🍜",
 	"u1f958": "🥘",
-	"u1f9c6": "🧆",
+	"u1f346": "🍆",
 	"u1f364": "🍤",
 	"u1f9aa": "🦪",
 	"u1f36d": "🍭",

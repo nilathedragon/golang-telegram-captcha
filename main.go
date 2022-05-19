@@ -13,12 +13,11 @@ import (
 var (
 	bot *tele.Bot
 
-	db = minikv.New(2*time.Minute, 5*time.Second)
+	db = minikv.New(15*time.Minute, 5*time.Second)
 )
 
 func main() {
-
-	botToken := os.Getenv("BOT_TOKEN")
+	botToken := os.Getenv("TG_BOT_TOKEN")
 
 	// listen for janitor expiration removal ( 5*time.Second )
 	db.OnEvicted(onEvicted)
@@ -37,8 +36,13 @@ func main() {
 	b.Handle(tele.OnUserJoined, onJoin)
 	b.Handle(tele.OnCallback, handleAnswer)
 	b.Handle(tele.OnUserLeft, func(c tele.Context) error {
+		kvID := fmt.Sprintf("%v-%v", c.Sender().ID, c.Chat().ID)
+		if statusObj, found := db.Get(kvID); found {
+			status := statusObj.(JoinStatus)
+			bot.Delete(&status.CaptchaMessage)
+			db.Delete(kvID)
+		}
 		c.Delete()
-		db.Delete(fmt.Sprint(c.Sender().ID))
 		return nil
 	})
 

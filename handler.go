@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"image/jpeg"
-	"math/rand"
 	"strings"
 	"time"
 
 	gim "github.com/codenoid/goimagemerge"
 	"github.com/codenoid/minikv"
+	"gopkg.in/tucnak/telebot.v3"
 	tele "gopkg.in/tucnak/telebot.v3"
 )
 
@@ -25,9 +25,10 @@ func onJoin(c tele.Context) error {
 	kvID := fmt.Sprintf("%v-%v", c.Sender().ID, c.Chat().ID)
 
 	// skip captcha-generation if data still exist
-	if _, found := db.Get(kvID); found {
-		c.Respond(&tele.CallbackResponse{Text: "Please solve existing captcha.", ShowAlert: true})
-		return nil
+	if statusObj, found := db.Get(kvID); found {
+		status := statusObj.(JoinStatus)
+		bot.Delete(&status.CaptchaMessage)
+		db.Delete(kvID)
 	}
 
 	// Go's map iteration are not ordered, but also not guaranteed
@@ -49,21 +50,20 @@ func onJoin(c tele.Context) error {
 	captchaGrids := make([]*gim.Grid, 0)
 	i := 0
 	for key := range answerMoji {
-		x := 10
+		x := 22
 		if i > 0 {
-			x = i * 100
+			x = i * 222
 		}
 		captchaGrids = append(captchaGrids, &gim.Grid{
 			ImageFilePath: fmt.Sprintf("./assets/image/emoji/%v.png", key),
-			OffsetX:       x, OffsetY: 120,
-			Rotate: float64(rand.Intn(200-0) + 0),
+			OffsetX:       x, OffsetY: 253,
 		})
 		i++
 	}
 
 	grids := []*gim.Grid{
 		{
-			ImageFilePath: "./gopherbg.jpg",
+			ImageFilePath: "./botbg.png",
 			Grids:         captchaGrids,
 		},
 	}
@@ -139,8 +139,9 @@ func onJoin(c tele.Context) error {
 		db.Set(kvID, status, minikv.DefaultExpiration)
 
 		chatMember, _ := bot.ChatMemberOf(c.Chat(), c.Sender())
-		chatMember.RestrictedUntil = time.Now().Add(2 * time.Minute).Unix()
-		bot.Restrict(c.Chat(), chatMember)
+		chatMember.Rights = tele.NoRights()
+		chatMember.RestrictedUntil = telebot.Forever()
+		fmt.Println(bot.Restrict(c.Chat(), chatMember))
 	}
 
 	return nil
@@ -161,6 +162,10 @@ func handleAnswer(c tele.Context) error {
 	status := JoinStatus{}
 	if data, found := db.Get(kvID); !found {
 		c.Respond(&tele.CallbackResponse{Text: "This challenge is not for you."})
+		chatMember, _ := bot.ChatMemberOf(c.Chat(), c.Sender())
+		if chatMember.RestrictedUntil != 0 {
+			onJoin(c)
+		}
 		return nil
 	} else {
 		status = data.(JoinStatus)
@@ -204,7 +209,7 @@ func handleAnswer(c tele.Context) error {
 
 	if status.SolvedCaptcha >= 4 {
 		db.Delete(kvID)
-		c.Respond(&tele.CallbackResponse{Text: "Successfully joined.", ShowAlert: true})
+		c.Respond(&tele.CallbackResponse{Text: "Thank you for verifying that you are not a bot. Welcome to the chat!", ShowAlert: true})
 		bot.Delete(&status.CaptchaMessage)
 
 		chatMember, _ := bot.ChatMemberOf(c.Chat(), c.Sender())
@@ -212,21 +217,21 @@ func handleAnswer(c tele.Context) error {
 		bot.Restrict(c.Chat(), chatMember)
 
 		return nil
-	} else if status.FailCaptcha >= 2 {
+	} else if status.FailCaptcha >= 3 {
 		db.Delete(kvID)
-		c.Respond(&tele.CallbackResponse{Text: "Captcha failed, you have been banned, please contact admin with your another account.", ShowAlert: true})
+		c.Respond(&tele.CallbackResponse{Text: "Captcha failed, you have been banned, please contact the chat administrators if you are a real person.", ShowAlert: true})
 		bot.Delete(&status.CaptchaMessage)
-		bot.Ban(c.Chat(), &tele.ChatMember{User: c.Sender()}, false)
 
 		mention := fmt.Sprintf(`[%v](tg://user?id=%v)`, status.UserFullName, status.UserID)
-		msg := "Captcha failed, %v has been banned, please contact administrator if %v are real human with non-automated account"
-		msg += "\n\n this message will automatically removed in 15 seconds..."
-		msg = fmt.Sprintf(msg, mention, mention)
+		msg := "Captcha failed, %v has been banned, please contact the chat administrators if you are a real person."
+		msg += "\n\n this message will be automatically removed in 15 seconds..."
+		msg = fmt.Sprintf(msg, mention)
 		msgr, err := bot.Send(status.CaptchaMessage.Chat, msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 		if err == nil {
 			go func(msgr *tele.Message) {
 				time.Sleep(15 * time.Second)
 				bot.Delete(msgr)
+				bot.Ban(c.Chat(), &tele.ChatMember{User: c.Sender()}, false)
 			}(msgr)
 		}
 	}
@@ -237,18 +242,17 @@ func handleAnswer(c tele.Context) error {
 func onEvicted(key string, value interface{}) {
 	if val, ok := value.(JoinStatus); ok {
 		mention := fmt.Sprintf(`[%v](tg://user?id=%v)`, val.UserFullName, val.UserID)
-		msg := "Captcha failed, %v has been banned, please contact administrator if %v are real human with non-automated account"
-		msg += "\n\n this message will automatically removed in 15 seconds..."
-		msg = fmt.Sprintf(msg, mention, mention)
+		msg := "Captcha failed, %v has been banned, please contact the chat administrators if you are a real person."
+		msg += "\n\n this message will be automatically removed in 15 seconds..."
+		msg = fmt.Sprintf(msg, mention)
 		msgr, err := bot.Send(val.CaptchaMessage.Chat, msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 		if err == nil {
 			go func(msgr *tele.Message) {
 				time.Sleep(15 * time.Second)
 				bot.Delete(msgr)
+				bot.Ban(val.CaptchaMessage.Chat, &tele.ChatMember{User: &tele.User{ID: val.UserID}}, false)
 			}(msgr)
 		}
-
 		bot.Delete(&val.CaptchaMessage)
-		bot.Ban(val.CaptchaMessage.Chat, &tele.ChatMember{User: &tele.User{ID: val.UserID}}, false)
 	}
 }

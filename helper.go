@@ -8,9 +8,11 @@ import (
 )
 
 func genCaption(user *tele.User) string {
-	desc := "Select all the emoji you see in the picture." +
-		"\n\n Max failure: 2 mistake \n Duration: 2 minutes" +
-		"\n\n Please leave group immediately if you are not ready with the bot"
+	desc := "Welcome to the chat 👋" +
+		"\n\nBefore you can participate you have to solve our captcha in the next 15 minutes." +
+		"\n\nIf you don't complete these steps in time, you will be automatically banned." +
+		"\nYou can fail the captcha twice before you are banned." +
+		"\n\nJust click the buttons below that match the emojis above!"
 
 	mention := fmt.Sprintf(`[%v](tg://user?id=%v)`, user.FirstName, user.ID)
 	caption := fmt.Sprintf("%v, %v", mention, desc)
